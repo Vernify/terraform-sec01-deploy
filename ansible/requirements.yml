@@ -1,0 +1,30 @@
+---
+# Ansible collection requirements for terraform-sec01-deploy/ansible/site.yml
+# Run: ansible-galaxy collection install -r requirements.yml --force
+#
+# Blueprints collections are pinned to a git SHA for reproducibility.
+# To update: get the new HEAD from the collection repo and replace the SHA.
+collections:
+  - name: blueprints.step_ca
+    source: https://github.com/iac-foundry/ansible-collection-step-ca
+    type: git
+    version: 4d0415f4cf143a1b521f7eb280d5d3ed22c4998c  # feat/phase-3-5-bootstrap
+
+  - name: blueprints.vault
+    source: https://github.com/iac-foundry/ansible-collection-vault
+    type: git
+    version: 31b80d1b3f528918a2f2bf208a0be65663b2048c  # feat/phase-3-5-bootstrap
+
+  - name: blueprints.vault_integrations
+    source: https://github.com/iac-foundry/ansible-collection-vault-integrations
+    type: git
+    version: 93a4161d2afc8ca56a60e8b48276cb7e9eb8e4cc  # feat/phase-3-5-bootstrap
+
+  - name: community.docker
+    version: ">=3.10.0,<4.0.0"
+
+  - name: community.general
+    version: ">=3.0.0,<4.0.0"
+
+  - name: community.hashi_vault
+    version: ">=7.0.0,<8.0.0"

@@ -55,9 +55,4 @@ module "sec01" {
   tags          = var.tags
   ci_password   = var.ci_password
 
-  # This Proxmox host's roles don't grant the agent-read privilege the
-  # provider needs for a NEW resource's plan/apply (see module variable
-  # "agent_enabled" for the full explanation). Scoped to this consumer only —
-  # dev01 and any other existing/future consumer keeps the default (true).
-  agent_enabled = false
 }
