@@ -1,14 +1,14 @@
 # Vernify sec01 configuration (security core: step-ca PKI + Vault)
 
-vm_name          = "sec01"
-proxmox_node     = "pve08"
-vm_cores         = 8
-vm_memory        = 16384
-disk_size        = 60
+vm_name           = "sec01"
+proxmox_node      = "pve08"
+vm_cores          = 8
+vm_memory         = 16384
+disk_size         = 60
 proxmox_datastore = "pve-08-zfs"
-network_bridge   = "vmbr0"
-template_name    = "ubuntu-24.04-template"
-ci_user          = "ubuntu"
+network_bridge    = "vmbr0"
+template_name     = "ubuntu-24.04-template"
+ci_user           = "ubuntu"
 
 # SSH access
 ssh_public_keys = [

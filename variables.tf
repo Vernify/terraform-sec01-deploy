@@ -100,9 +100,3 @@ variable "tags" {
   default     = []
 }
 
-variable "ci_password" {
-  description = "Password for the cloud-init user (for debugging; SSH keys preferred)."
-  type        = string
-  sensitive   = true
-  default     = null
-}
