@@ -78,149 +78,37 @@
         ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file_arg }}"
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
 
-    - name: "[PRE] Configure /etc/hosts on sec01 (P0-4 DNS strategy)"
-      ansible.builtin.copy:
-        content: |
-          127.0.0.1 localhost
-          ::1 ip6-localhost ip6-loopback
+    - name: "[PRE] Configure /etc/hosts on sec01 and localhost (vernify.common.hosts)"
+      ansible.builtin.include_role:
+        name: vernify.common.hosts
+        apply:
+          delegate_to: "{{ item.target }}"
+          become: "{{ item.become }}"
+      vars:
+        vernify_hosts_sec01_ip: "{{ sec01_ip }}"
+        vernify_hosts_docker01_ip: "{{ build01_ip }}"
+        vernify_hosts_agent01_ip: "{{ agent01_ip }}"
+        vernify_hosts_configure_target: "{{ item.configure_target }}"
+        vernify_hosts_configure_localhost: "{{ item.configure_localhost }}"
+      loop:
+        - {target: sec01,     become: true,  configure_target: true,  configure_localhost: false}
+        - {target: localhost,  become: false, configure_target: false, configure_localhost: true}
 
-          {{ sec01_ip }} sec01 sec01.{{ vernify_internal_domain }} vault vault.sec01 vault.sec01.{{ vernify_internal_domain }} step-ca ca.sec01 ca.sec01.{{ vernify_internal_domain }}
-          {{ build01_ip }} docker01 docker01.{{ vernify_internal_domain }} jenkins jenkins.docker01 jenkins.docker01.{{ vernify_internal_domain }}
-          {{ agent01_ip }} agent01 agent01.{{ vernify_internal_domain }}
-        dest: /etc/hosts
-        mode: "0644"
-        owner: root
-        group: root
-      become: true
-      delegate_to: sec01
+    - name: "[PRE] Install Docker Engine on sec01 (blueprints.common.docker_runtime)"
+      ansible.builtin.include_role:
+        name: blueprints.common.docker_runtime
+        apply:
+          delegate_to: sec01
+          become: true
 
-    # blueprints.step_ca.issue_certificate runs on localhost (the step CLI
-    # is baked into the bootstrap-container image, not the target hosts --
-    # see that include_role's apply: block below), so localhost also needs
-    # to resolve sec01's internal DNS name. Additive (lineinfile), not a
-    # full overwrite, since this is the container's own /etc/hosts.
-    - name: "[PRE] Add sec01 DNS entry to localhost's /etc/hosts (issue_certificate runs here)"
-      # /etc/hosts inside a Docker container is bind-mounted -- lineinfile/copy
-      # use an atomic write-temp-then-rename pattern internally, which fails
-      # with "Device or resource busy" against a bind-mount target. Append
-      # directly instead, guarded by an idempotency check.
-      ansible.builtin.shell: |
-        set -o pipefail
-        if ! grep -qF "{{ sec01_ip }} sec01" /etc/hosts; then
-          echo "{{ sec01_ip }} sec01 sec01.{{ vernify_internal_domain }} vault vault.sec01 vault.sec01.{{ vernify_internal_domain }} step-ca ca.sec01 ca.sec01.{{ vernify_internal_domain }}" >> /etc/hosts
-        fi
-      args:
-        executable: /bin/bash
-      changed_when: true
-
-    # blueprints.step_ca.container_server and blueprints.vault.container_server
-    # both run community.docker.docker_container against sec01 -- the Docker
-    # engine itself is not part of the Packer template and must be installed
-    # here before either role runs.
-    - name: "[PRE] Check if Docker is already installed on sec01 (idempotency)"
-      ansible.builtin.stat:
-        path: /usr/bin/docker
-      register: sec01_docker_check
-      become: true
-      delegate_to: sec01
-
-    - name: "[PRE] Install Docker Engine on sec01"
-      become: true
-      delegate_to: sec01
-      when: not sec01_docker_check.stat.exists
-      block:
-        - name: "Install prerequisites"
-          ansible.builtin.apt:
-            name: ["ca-certificates", "curl", "python3-pip"]
-            state: present
-            update_cache: true
-            cache_valid_time: 3600
-
-        - name: "Create keyrings directory"
-          ansible.builtin.file:
-            path: /etc/apt/keyrings
-            state: directory
-            mode: "0755"
-
-        - name: "Download Docker's official GPG key"
-          ansible.builtin.get_url:
-            url: https://download.docker.com/linux/ubuntu/gpg
-            dest: /etc/apt/keyrings/docker.asc
-            mode: "0644"
-
-        - name: "Determine Debian architecture name (dpkg, not ansible_architecture -- avoids translation bugs)"
-          ansible.builtin.command: dpkg --print-architecture
-          register: dpkg_arch
-          changed_when: false
-
-        - name: "Add Docker apt repository"
-          ansible.builtin.apt_repository:
-            repo: >-
-              deb [arch={{ dpkg_arch.stdout }}
-              signed-by=/etc/apt/keyrings/docker.asc]
-              https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
-            state: present
-            filename: docker
-
-        - name: "Install Docker Engine"
-          ansible.builtin.apt:
-            name: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]
-            state: present
-            update_cache: true
-
-        - name: "Ensure Docker service is enabled and running"
-          ansible.builtin.systemd:
-            name: docker
-            state: started
-            enabled: true
-
-        - name: "Install Docker Python SDK (required by community.docker.docker_container)"
-          ansible.builtin.pip:
-            name: docker
-            state: present
-            break_system_packages: true
-
-
-    # blueprints.vault.init_and_unseal needs the vault CLI on sec01 itself,
-    # not just the bootstrap container: its generated unseal-script.sh runs
-    # autonomously via a systemd service on sec01 (auto-unseal on Vault
-    # restart, per the design's LADR-008), with no bootstrap-container
-    # involvement at that point. This differs from step-ca's issue_certificate
-    # (a one-shot, Ansible-driven operation correctly delegated to localhost
-    # where step CLI lives) -- Vault's unseal path is designed to keep working
-    # after the bootstrap container is retired, so vault CLI must be
-    # permanently installed on sec01, not borrowed from the control node.
-    - name: "[PRE] Check if HashiCorp apt repo already configured on sec01 (idempotency)"
-      ansible.builtin.stat:
-        path: /etc/apt/sources.list.d/hashicorp.list
-      register: sec01_hashicorp_repo_check
-      become: true
-      delegate_to: sec01
-
-    - name: "[PRE] Install HashiCorp apt repository on sec01"
-      become: true
-      delegate_to: sec01
-      when: not sec01_hashicorp_repo_check.stat.exists
-      block:
-        - name: "Install gnupg/curl prerequisites"
-          ansible.builtin.apt:
-            name: ["gnupg", "curl"]
-            state: present
-            update_cache: true
-            cache_valid_time: 3600
-
-        - name: "Add HashiCorp GPG key"
-          ansible.builtin.shell: |
-            curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-
-        - name: "Add HashiCorp apt repository"
-          ansible.builtin.shell: |
-            echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
-              | tee /etc/apt/sources.list.d/hashicorp.list
-
-        - name: "Update apt cache after adding HashiCorp repo"
-          ansible.builtin.apt:
-            update_cache: true
+    # blueprints.vault.init_and_unseal needs the vault CLI on sec01 itself --
+    # its unseal-script.sh runs via systemd on Vault restart (LADR-008).
+    - name: "[PRE] Add HashiCorp apt repository on sec01 (blueprints.common.hashicorp_repository)"
+      ansible.builtin.include_role:
+        name: blueprints.common.hashicorp_repository
+        apply:
+          delegate_to: sec01
+          become: true
 
     - name: "[PRE] Install vault CLI on sec01"
       ansible.builtin.apt:
